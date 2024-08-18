@@ -1,30 +1,49 @@
-name: Django CI
+name: Django Deployment
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
 
 jobs:
-  build:
-
+  build-and-deploy:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 4
-      matrix:
-        python-version: [3.7, 3.8, 3.9]
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
       uses: actions/setup-python@v3
       with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install Dependencies
+        python-version: '3.10'  # Update to Python 3.10
+
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    - name: Run Tests
+
+    - name: Run migrations
+      run: python manage.py migrate
+
+    - name: Collect static files
+      run: python manage.py collectstatic --noinput
+
+    - name: Deploy to Server
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        HOST: ${{ secrets.HOST }}
+        USER: ${{ secrets.USER }}
+        DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
       run: |
-        python manage.py test
+        ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY $USER@$HOST "
+          cd $DEPLOY_PATH &&
+          git pull origin main &&
+          source venv/bin/activate &&
+          pip install -r requirements.txt &&
+          python manage.py migrate &&
+          python manage.py collectstatic --noinput &&
+          sudo systemctl restart gunicorn"
